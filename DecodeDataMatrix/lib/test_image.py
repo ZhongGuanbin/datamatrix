@@ -457,5 +457,20 @@ cv2.imwrite(save_path, resized_grey_image)
 # 解码灰度图
 decoded_data = dmtx.decode(cv2.imread(save_path, cv2.IMREAD_GRAYSCALE))
 
+if not decoded_data:
+    # 在图像四周添加50像素的空白
+    resized_grey_image = cv2.copyMakeBorder(resized_grey_image, 50, 50, 50, 50, cv2.BORDER_CONSTANT, value=255)
+
+    # 保存路径
+    save_path_dir = os.path.join(os.path.dirname(f_path), 'output')
+    os.makedirs(save_path_dir, exist_ok=True)
+    save_path = os.path.join(save_path_dir, os.path.basename(f_path))
+
+    # 保存图片
+    cv2.imwrite(save_path, resized_grey_image)
+
+    # 解码灰度图
+    decoded_data = dmtx.decode(cv2.imread(save_path, cv2.IMREAD_GRAYSCALE))
+
 # 打印解码结果
 print(decoded_data)
