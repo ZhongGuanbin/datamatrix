@@ -420,9 +420,20 @@ def decode_dmtx(image_path):
     matrix_ranks = int(np.sqrt(len(predict_grey_value_list)))
     dmtx_matrix = np.array(predict_grey_value_list).reshape(matrix_ranks, matrix_ranks)
 
+    # 修改第一行的奇数位为0，偶数位为255
+    dmtx_matrix[0, 1::2] = 255
+    dmtx_matrix[0, 0::2] = 0
+
+    # 修改最后一列的奇数位为255，偶数位为0
+    dmtx_matrix[1::2, -1] = 0
+    dmtx_matrix[0::2, -1] = 255
+
+    # 修改矩阵的第一列和最后一行
+    dmtx_matrix[:, 0] = 0
+    dmtx_matrix[-1, :] = 0
+
     # 返回解码后的数据矩阵
     return dmtx_matrix
-
 
 
 root = tk.Tk()
