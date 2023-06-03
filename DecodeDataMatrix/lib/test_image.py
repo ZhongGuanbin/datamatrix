@@ -434,7 +434,7 @@ f_path = filedialog.askopenfilename()
 test_data = decode_dmtx(f_path)
 
 # 设置灰度图的大小
-length = int(len(test_data) ** 0.5)
+length = int(test_data.size ** 0.5)
 
 # 将灰度值列表转成灰度图像
 predict_grey_value_array = np.array(test_data, dtype=np.uint8)
