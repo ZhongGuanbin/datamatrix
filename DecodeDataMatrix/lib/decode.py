@@ -1,10 +1,10 @@
+import tkinter as tk
+from tkinter import filedialog
+
 import cv2
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
-from sklearn.neighbors import KernelDensity
-import tkinter as tk
-from tkinter import filedialog
 
 
 # 定义寻峰函数，寻找可能的分割线
@@ -291,29 +291,6 @@ def grid_iterative_segmentation(grid_points_list_input, binary_image_input):
 '''
 
 
-def predict_by_lwr(value_list):
-    # 将灰度分布转换为数组
-    x = np.arange(len(value_list))
-    y = np.array(value_list)
-
-    # 进行局部加权回归LWR预测，得到二值化后的预测值predict_gray_value_lwr
-    model = sm.nonparametric.KernelReg(endog=y, exog=x, var_type='o')
-    y_fit, _ = model.fit(x)
-
-    # 计算预测点
-    x_pred = np.arange(len(value_list), len(value_list) + 1)
-    y_pred, _ = model.fit(x_pred)
-    predict_gray_value_lwr = y_pred[0]
-
-    # 根据阈值调整预测值,将predict_gray_value_lwr二值化，1表示黑色，0表示白色
-    if predict_gray_value_lwr > 128:
-        predict_gray_value_lwr = 255
-    else:
-        predict_gray_value_lwr = 0
-
-    return predict_gray_value_lwr
-
-
 # 定义一个预测灰度值的函数predict_gray_value
 def predict_gray_value(grey_tend_list_total):
     # 存储根据灰度分布得到的预测灰度值
@@ -321,38 +298,38 @@ def predict_gray_value(grey_tend_list_total):
 
     # 循环遍历每个灰度分布
     for gray_tend_list in grey_tend_list_total:
-        while True:
-            # 通过LWR获取预测值
-            predict_gray_value_lwr = predict_by_lwr(gray_tend_list)
+        # 将灰度分布转换为数组
+        x = np.arange(len(gray_tend_list))
+        y = np.array(gray_tend_list)
 
-            # 通过KDE获取预测值
-            predict_gray_value_kde = predict_by_kde(gray_tend_list)
+        # 进行局部加权回归LWR预测，得到二值化后的预测值predict_gray_value_lwr
+        model = sm.nonparametric.KernelReg(endog=y, exog=x, var_type='o')
+        y_fit, _ = model.fit(x)
 
-            # 如果predict_gray_value_kde与predict_gray_value_lwr不同，则认为预测值是不准确的，网格存在较大的噪声。
-            if predict_gray_value_lwr != predict_gray_value_kde:
-                # 计算网格灰度分布的平均值和标准差，对网格灰度分布进行标准化处理，剔除标准差最大的数据点
-                gray_value_mean = np.mean(gray_tend_list)
-                gray_value_std = np.std(gray_tend_list)
-                gray_value_scores = (gray_tend_list - gray_value_mean) / gray_value_std
-                max_index = np.argmax(np.abs(gray_value_scores))
-                gray_tend_list = np.delete(gray_tend_list, max_index)
+        # 计算预测点
+        x_pred = np.arange(len(gray_tend_list), len(gray_tend_list) + 1)
+        y_pred, _ = model.fit(x_pred)
+        predict_gray_value_lwr = y_pred[0]
 
-                # 如果网格灰度分布中的数据点个数小于等于2，则认为网格中的噪声点过多，无法进行预测。
-                if len(gray_tend_list) <= 2:
-                    predict_grey_list.append(predict_gray_value_lwr)
-                    break
-            else:
-                # 预测值相同，将predict_gray_value_lwr添加到predict_grey_list中，并结束循环
-                predict_grey_list.append(predict_gray_value_lwr)
-                break
+        # 根据阈值调整预测值,将predict_gray_value_lwr二值化，1表示黑色，0表示白色
+        if predict_gray_value_lwr > 128:
+            predict_gray_value_lwr = 255
+        else:
+            predict_gray_value_lwr = 0
+
+        # 将预测值添加到predict_grey_list中
+        predict_grey_list.append(predict_gray_value_lwr)
 
     return predict_grey_list
 
 
 # 定义解码函数，输入图片的路径，输出解码后的数据矩阵
 def decode_dmtx(image_path):
-    # 采用cv2读取路径为image_path的PNG图片，将其灰度化
+    # 采用cv2读取路径为image_path的PNG图片
     image = cv2.imread(image_path)
+
+    # 放缩到256*256的像素空间中
+    image = cv2.resize(image, (256, 256))
 
     # CLAHE对比度增强
     clahe = cv2.createCLAHE(clipLimit=2, tileGridSize=(5, 5))
@@ -367,32 +344,28 @@ def decode_dmtx(image_path):
     # 采用cv2进行二值化，二值化的阈值用OTSU算法自动计算
     ret, binary_image = cv2.threshold(denoised_image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-    # 缩放到1000*1000的像素空间中,增大空间是为了区域迭代分割有更多的数据点，能做更准确的分析
-    resized_binary_image = cv2.resize(binary_image, (1000, 1000), interpolation=cv2.INTER_LINEAR)
+    # 计算每个像素点与右侧一个像素点的灰度差值绝对值，并统计每一列像素的差值和
+    height, width = binary_image.shape[:2]
+    column_sums = np.zeros(width)  # 存储每一列像素的差值和
+    row_sums = np.zeros(height)  # 存储每一行像素的差值和
+    for y in range(height):
+        for x in range(width - 1):
+            diff = abs(int(binary_image[y, x]) - int(binary_image[y, x + 1]))  # 计算灰度差值绝对值
+            column_sums[x] += diff  # 累加差值到相应列
 
-    # 计算每个像素点与右侧一个像素点的灰度差值
-    gx = np.abs(np.diff(np.asarray(resized_binary_image), axis=1))
+    # 计算最右侧像素点与0的差值绝对值，并添加到column_sums的最后一列
+    column_sums[-1] = abs(int(binary_image[0, -1]) - 0)
 
-    # 统计每一列像素的差值和，最右侧的像素点则与0做差值
-    col_sum = np.sum(gx, axis=0)
-    col_sum = np.append(col_sum, 0)
+    for y in range(height - 1):
+        for x in range(width):
+            diff = abs(int(binary_image[y, x]) - int(binary_image[y + 1, x]))  # 计算灰度差值绝对值
+            row_sums[y] += diff  # 累加差值到相应行
 
-    # 水平方向横纵坐标数组
-    y_h = col_sum
+    # 计算最下方像素点与0的差值绝对值，并添加到row_sums的最后一行
+    row_sums[-1] = abs(int(binary_image[-1, 0]) - 0)
 
-    # 计算水平方向分割线
-    find_peak_list_x = find_peak(y_h)
-
-    # 统计每一行像素的差值和，最下方的像素点则与0做差值
-    gy = np.abs(np.diff(np.asarray(resized_binary_image), axis=0))
-    row_sum = np.sum(gy, axis=1)
-    row_sum = np.append(row_sum, 0)
-
-    # 垂直方向横纵坐标数组
-    y_v = row_sum
-
-    # 计算垂直方向分割线
-    find_peak_list_y = find_peak(y_v)
+    find_peak_list_x = find_peak(column_sums)
+    find_peak_list_y = find_peak(row_sums)
 
     # 由DataMatrix二维码的码制可知，二维码的大小都是偶数个模块，因此分割线的数量应该为奇数。
     # 比较水平方向和竖直方向的分割线数量，如果不相等，则图中噪声较大，需要增大滤波带宽，直到两者相等或者带宽大于30
@@ -405,32 +378,28 @@ def decode_dmtx(image_path):
         # 采用cv2进行二值化，二值化的阈值用OTSU算法自动计算
         ret, binary_image = cv2.threshold(denoised_image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-        # 缩放到1000*1000的像素空间中,增大空间是为了区域迭代分割有更多的数据点，能做更准确的分析
-        resized_binary_image = cv2.resize(binary_image, (1000, 1000), interpolation=cv2.INTER_LINEAR)
+        # 计算每个像素点与右侧一个像素点的灰度差值绝对值，并统计每一列像素的差值和
+        height, width = binary_image.shape[:2]
+        column_sums = np.zeros(width)  # 存储每一列像素的差值和
+        row_sums = np.zeros(height)  # 存储每一行像素的差值和
+        for y in range(height):
+            for x in range(width - 1):
+                diff = abs(int(binary_image[y, x]) - int(binary_image[y, x + 1]))  # 计算灰度差值绝对值
+                column_sums[x] += diff  # 累加差值到相应列
 
-        # 计算每个像素点与右侧一个像素点的灰度差值
-        gx = np.abs(np.diff(np.asarray(resized_binary_image), axis=1))
+        # 计算最右侧像素点与0的差值绝对值，并添加到column_sums的最后一列
+        column_sums[-1] = abs(int(binary_image[0, -1]) - 0)
 
-        # 统计每一列像素的差值和，最右侧的像素点则与0做差值
-        col_sum = np.sum(gx, axis=0)
-        col_sum = np.append(col_sum, 0)
+        for y in range(height - 1):
+            for x in range(width):
+                diff = abs(int(binary_image[y, x]) - int(binary_image[y + 1, x]))  # 计算灰度差值绝对值
+                row_sums[y] += diff  # 累加差值到相应行
 
-        # 水平方向横纵坐标数组
-        y_h = col_sum
+        # 计算最下方像素点与0的差值绝对值，并添加到row_sums的最后一行
+        row_sums[-1] = abs(int(binary_image[-1, 0]) - 0)
 
-        # 计算水平方向分割线
-        find_peak_list_x = find_peak(y_h)
-
-        # 统计每一行像素的差值和，最下方的像素点则与0做差值
-        gy = np.abs(np.diff(np.asarray(resized_binary_image), axis=0))
-        row_sum = np.sum(gy, axis=1)
-        row_sum = np.append(row_sum, 0)
-
-        # 垂直方向横纵坐标数组
-        y_v = row_sum
-
-        # 计算垂直方向分割线
-        find_peak_list_y = find_peak(y_v)
+        find_peak_list_x = find_peak(column_sums)
+        find_peak_list_y = find_peak(row_sums)
 
     if len(find_peak_list_x) != len(find_peak_list_y):
         print("二维码噪声过大，无法进行解码")
@@ -441,7 +410,7 @@ def decode_dmtx(image_path):
 
     # 得到网格列表内每个网格的灰度分布趋势
     grid_grey_tend_list = grid_iterative_segmentation(grid_points_list_input=grid_points_list,
-                                                      binary_image_input=resized_binary_image)
+                                                      binary_image_input=binary_image)
     # 得到每个网格二值化后的值，1表示黑色，0表示白色
     predict_grey_value_list = predict_gray_value(grid_grey_tend_list)
 
